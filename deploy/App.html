@@ -1,9 +1,7 @@
-
 <!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
 
 <html>
 <head>
-<meta http-equiv="X-UA-Compatible" content="IE=EmulateIE7">
 <title>Enhanced Velocity Chart</title>
 
 <meta name="Name" content="Mashup: Enhanced Velocity Chart"/>
@@ -21,7 +19,7 @@
 <script type="text/javascript" src="/slm/js-lib/dojo/1.3.1/dojo/dojo.js"></script>
 <script type="text/javascript" src="/slm/js/slm.js"></script>
 <script type="text/javascript" src="/slm/js/help.js"></script>
-<script type="text/javascript" src="/slm/js-lib/ejsc/2.0.1/EJSChart.js"></script>
+<script type="text/javascript" src="/apps/1.33/lib/ejsc/EJSChart.js"></script>
 <script type="text/javascript" src="/slm/mashup/1.13/js/batch-toolkit.js"></script>
 <script type="text/javascript" src="/slm/mashup/1.13/js/utilities.js"></script>
 
@@ -88,7 +86,7 @@ function EVC_Chart(node_id) {
              console.log('hoverOrSelect:');console.log(hoverOrSelect);
              */
             if (series.title.indexOf(TREND_LINE_TITLE) > -1) {
-                return 'Accepted During the Iteration Trend';
+                return 'Accepted  Trend';
             }
 
             var ig = prevISet.getIterationGroup(point.x - 1);
@@ -103,7 +101,7 @@ function EVC_Chart(node_id) {
             //	  console.log("hint: series.title = "+series.title+", iteration # "+ (point.x - 1) + ", totalPoints = "+total+", y = "+point.y+", pct = "+pct);
 
             if (series.title.indexOf(SERIES_1_TITLE) > -1) {
-                return 'Accepted During the Iteration: ' + Math.round(point.y * 100) / 100 + ' ' + label + ' (' + pct.toFixed(0) + '%)';
+                return 'Accepted: ' + Math.round(point.y * 100) / 100 + ' ' + label + ' (' + pct.toFixed(0) + '%)';
             } else if (series.title.indexOf(SERIES_2_TITLE) > -1) {
                 return 'Accepted After the Iteration: ' + Math.round(point.y * 100) / 100 + ' ' + label + ' (' + pct.toFixed(0) + '%)';
             } else if (series.title.indexOf(SERIES_3_TITLE) > -1) {
@@ -125,7 +123,17 @@ function EVC_Chart(node_id) {
      */
     this.drawStackedBarSeries = function(sbData, includeTrendLine) {
         //console.log(sbData);
-
+        //DE25108: force series labels to string so that iteration names like '2015-07-25' don't turn into 2,015.5
+        var i;
+        for(i=0;i<sbData.num_1_series.length;i++) {
+            sbData.num_1_series[i][0] += ' ';
+        }
+        for(i=0;i<sbData.num_2_series.length;i++) {
+            sbData.num_2_series[i][0] += ' ';
+        }
+        for(i=0;i<sbData.num_3_series.length;i++) {
+            sbData.num_3_series[i][0] += ' ';
+        }
         var sbSeries = this.ejsChart.addSeries(
                 new EJSC.StackedBarSeries(
                         {
@@ -474,9 +482,11 @@ function ProjectIterationSet() {
     this.totalPoints = 0;
     this.planEstimateLabel = null;
 
-    var MAX_ITERATIONS = 10;
     var AVG_LENGTH = 3;
+    var AVG_LENGTH_SHORT = 3;
+    var AVG_LENGTH_LONG = 6;
 
+    var MAX_ITERATIONS = 10;
     this.load = function () {
         var user_query = {
             key: "defaultProject",
@@ -612,17 +622,20 @@ function ProjectIterationSet() {
 
         var sbData = {};
         var bars = {};
-        var num_1_series = [];
+        var num_1_series = [];var len = this.iterations.length < AVG_LENGTH ? this.iterations.length : AVG_LENGTH;
         var num_2_series = [];
         var num_3_series = [];
 
         var avgs = {};
-        var len = this.iterations.length < AVG_LENGTH ? this.iterations.length : AVG_LENGTH;
-        var avg_last = { label: "Average accepted for last 3 iterations", avg: 0, iterations: [] };
-        var avg_best = { label: "Average accepted for best 3 iterations", avg: 0, iterations: [], _to_calc: [],
-            test: function(arr, val, i_name, len) {
+        var len_short = this.iterations.length < AVG_LENGTH_SHORT ? this.iterations.length : AVG_LENGTH_SHORT;
+        var len = len_short;
+        var len_long = this.iterations.length < AVG_LENGTH_LONG ? this.iterations.length : AVG_LENGTH_LONG;
+        var avg_last_short = { label: "Average velocity for last " + len_short + " iterations", avg: 0, iterations: [] };
+        var avg_last_long = { label: "Average velocity for last " + len_long + " iterations", avg: 0, iterations: [] };
+        var avg_best = { label: "Average velocity for best 3 iterations", avg: 0, iterations: [], _to_calc: [],
+            test: function(arr, val, i_name, len_short) {
                 arr.sort(sortNumericAsc);
-                if (arr.length < len) {
+                if (arr.length < len_short) {
                     arr.push([val, i_name]);
                     return true;
                 }
@@ -637,11 +650,11 @@ function ProjectIterationSet() {
                 return false;
             }
         };
-        var avg_worst = { label: "Average accepted for worst 3 iterations", avg: 0, iterations: [], _to_calc: [],
-            test: function(arr, val, i_name, len) {
+        var avg_worst = { label: "Average velocity for worst 3 iterations", avg: 0, iterations: [], _to_calc: [],
+            test: function(arr, val, i_name, len_short) {
                 arr.sort(sortNumericAsc);
                 arr.reverse();
-                if (arr.length < len) {
+                if (arr.length < len_short) {
                     arr.push([val, i_name]);
                     return true;
                 }
@@ -660,11 +673,17 @@ function ProjectIterationSet() {
         this.iterations.reverse();
         for (var i = 0; i < this.iterations.length; i++) {
             var it = this.iterations[i];
-            var num1 = it.getSumAcceptedPlanEstimates();
+            var num1 = it.getSumAcceptedStories();
 
-            if (i > this.iterations.length - len - 1) {
-                avg_last.avg += num1;
-                avg_last.iterations.push(it.name);
+            if (i > this.iterations.length - len_short - 1) {
+                avg_last_short.avg += num1;
+                avg_last_short.iterations.push(it.name);
+            }
+
+            if (i > this.iterations.length - len_long - 1) {
+
+                avg_last_long.avg += num1;
+                avg_last_long.iterations.push(it.name);
             }
 
             avg_best.test(avg_best._to_calc, num1, it.name, len);
@@ -697,8 +716,10 @@ function ProjectIterationSet() {
 
         if (len > 0) {
             // last n iterations average
-            avg_last.avg = avg_last.avg / len;
-            avgs.avg_last = avg_last;
+            avg_last_short.avg = avg_last_short.avg / len_short;
+            avg_last_long.avg = avg_last_long.avg / len_long;
+            avgs.avg_last = avg_last_short;
+            avgs.avg_last5 = avg_last_long;
 
             // best n iterations average
             for (var i = 0; i < avg_best._to_calc.length; i++) {
@@ -763,6 +784,7 @@ ProjectIterationSet.loadedEvent = "project_iterations_loaded";
 
     #divAverages table {
         border-collapse: collapse;
+        font-size: 16px;
     }
 
     #divAverages td {
@@ -779,8 +801,8 @@ ProjectIterationSet.loadedEvent = "project_iterations_loaded";
 </head>
 <body>
 <div style="float:right" id="help"></div>
-<div style="float:left" id="title" class="titlebar">
-    Enhanced Velocity Chart <span id="spnProject"></span>
+<!--<div style="float:left" id="title" class="titlebar">-->
+    <!--Velocity Chart <span id="spnProject"></span>-->
 </div>
 <table>
     <tr>
@@ -802,7 +824,7 @@ ProjectIterationSet.loadedEvent = "project_iterations_loaded";
 <div style="clear:both"></div>
 
 <div style="padding: 5px;margin: 0px auto; background-color: #fff;width: 90%;">
-    <div id="divAverages" style="margin-bottom: 20px;"></div>
+    <div id="divAverages" style="margin-bottom: 30px;"></div>
     <div id="divChart" style="width:100%; height: 300px;">
         <div>
             <img alt="Progress" src="/slm/images/icon_spinner.gif"/>
